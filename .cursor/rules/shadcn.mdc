@@ -1,0 +1,4 @@
+---
+description: whenever the user instructs on working on ui. always use shadcn ui and for layout adjustments use tailwindcss. 
+alwaysApply: false
+---

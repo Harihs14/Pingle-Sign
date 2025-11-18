@@ -1,0 +1,71 @@
+.reactEasyCrop_Container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  border-radius: 0.75rem;
+}
+
+.reactEasyCrop_Image,
+.reactEasyCrop_Video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.reactEasyCrop_Video {
+  max-width: none;
+}
+
+.reactEasyCrop_CropArea {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 14px;
+  cursor: grab;
+}
+
+.reactEasyCrop_CropArea:active {
+  cursor: grabbing;
+}
+
+.reactEasyCrop_CropArea::before,
+.reactEasyCrop_CropArea::after {
+  content: "";
+  position: absolute;
+  left: 33.3333%;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  border-right: 1px solid rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+
+.reactEasyCrop_CropArea::after {
+  left: 0;
+  top: 33.3333%;
+  right: 0;
+  bottom: auto;
+  border-left: none;
+  border-right: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.reactEasyCrop_CropAreaRound {
+  border-radius: 9999px;
+}
+
+.reactEasyCrop_CropAreaGrid {
+  display: block;
+}
