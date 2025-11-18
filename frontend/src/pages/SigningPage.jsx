@@ -27,6 +27,8 @@ import {
   CheckCircle2,
   Loader2,
   Info,
+  Download,
+  PenTool,
 } from "lucide-react";
 import PingleLogo from "../assets/pingle-logo.png";
 
@@ -152,8 +154,13 @@ const SigningPage = () => {
   const [imagePreview, setImagePreview] = useState(null);
   const [formError, setFormError] = useState("");
   const [completionDetails, setCompletionDetails] = useState(null);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
   const documentContainerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawnSignature, setDrawnSignature] = useState(null);
   const [pageWidth, setPageWidth] = useState(600);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -272,6 +279,18 @@ const SigningPage = () => {
         return next;
       });
       setSignatureType("image");
+    } else if (type === "draw") {
+      setSignatureImages((prev) => ({
+        ...prev,
+        [placeholder.id]: value,
+      }));
+      setSignatureStyles((prev) => {
+        const next = { ...prev };
+        delete next[placeholder.id];
+        return next;
+      });
+      setSignatureType("draw");
+      setDrawnSignature(value);
     }
   };
 
@@ -317,6 +336,116 @@ const SigningPage = () => {
     }
   };
 
+  // Drawing functions
+  useEffect(() => {
+    if (!canvasRef.current || signatureModalTab !== "draw") return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    // Set canvas size
+    canvas.width = 600;
+    canvas.height = 200;
+
+    // Set drawing style
+    ctx.strokeStyle = "#000000";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // Load existing drawn signature if available
+    const existingImage = activeSignaturePlaceholder
+      ? signatureImages[activeSignaturePlaceholder.id]
+      : null;
+
+    if (existingImage) {
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.src = existingImage;
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [signatureModalTab, activeSignaturePlaceholder?.id, signatureImages]);
+
+  const getCanvasCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const clientX = e.clientX || e.touches?.[0]?.clientX || 0;
+    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  };
+
+  const startDrawing = (e) => {
+    setIsDrawing(true);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { x, y } = getCanvasCoordinates(e);
+    const ctx = canvas.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing || !canvasRef.current) return;
+    e.preventDefault();
+
+    const { x, y } = getCanvasCoordinates(e);
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Save the drawn signature
+    const dataURL = canvas.toDataURL("image/png");
+    setDrawnSignature(dataURL);
+
+    if (activeSignaturePlaceholder) {
+      setSignatureForPlaceholder(activeSignaturePlaceholder, "draw", dataURL);
+    }
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setDrawnSignature(null);
+
+    if (activeSignaturePlaceholder) {
+      setSignatureImages((prev) => {
+        const next = { ...prev };
+        delete next[activeSignaturePlaceholder.id];
+        return next;
+      });
+      setSignatureTypesByPlaceholder((prev) => {
+        const next = { ...prev };
+        delete next[activeSignaturePlaceholder.id];
+        return next;
+      });
+    }
+  };
+
   const openSignatureDialog = (placeholder) => {
     if (!placeholder) return;
 
@@ -331,6 +460,9 @@ const SigningPage = () => {
       const existingValue =
         fieldValues[fieldKey] || signatureText || document?.signer_name || "";
       setSignatureText(existingValue);
+    } else if (currentType === "draw") {
+      const existingDraw = signatureImages[placeholder.id];
+      setDrawnSignature(existingDraw || null);
     }
 
     const currentFont =
@@ -347,9 +479,30 @@ const SigningPage = () => {
   };
 
   const closeSignatureDialog = () => {
+    // Save drawn signature if exists
+    if (signatureModalTab === "draw" && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      // Check if canvas has any content by checking if it's not empty
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const hasContent = imageData.data.some((channel) => channel !== 0);
+
+      if (hasContent) {
+        const dataURL = canvas.toDataURL("image/png");
+        if (activeSignaturePlaceholder) {
+          setSignatureForPlaceholder(
+            activeSignaturePlaceholder,
+            "draw",
+            dataURL
+          );
+        }
+      }
+    }
+
     setSignatureDialogOpen(false);
     setActiveSignaturePlaceholder(null);
     setImagePreview(null);
+    setIsDrawing(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -440,6 +593,8 @@ const SigningPage = () => {
     setSignatureModalTab("text");
     setFormError("");
     setImagePreview(null);
+    setDrawnSignature(null);
+    clearCanvas();
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -458,6 +613,12 @@ const SigningPage = () => {
       try {
         data = await documentsApi.getByToken(token);
       } catch (error) {
+        // Suppress console errors for expected 410 responses (already signed documents)
+        if (error.status === 410 && error.isExpected) {
+          // This is expected behavior, not an error
+        } else {
+          console.error("Error loading document:", error);
+        }
         // Handle different error statuses
         if (error.status === 404 || error.message?.includes("404")) {
           setStatus("already");
@@ -470,7 +631,35 @@ const SigningPage = () => {
 
         // Handle 410 (Gone) - document already signed or expired
         if (error.status === 410 || error.data?.status) {
+          console.log("Received 410 error, data:", error.data);
           const status = error.data?.status || "completed";
+          // Store document info even if completed, so we can download it
+          // Try multiple possible field names
+          const documentId =
+            error.data?.documentId || error.data?.id || error.data?.document_id;
+          const templateName =
+            error.data?.templateName || error.data?.template_name;
+
+          console.log("Extracted document info:", {
+            documentId,
+            templateName,
+            errorData: error.data,
+          });
+
+          if (documentId) {
+            setDocument({
+              id: documentId,
+              template_name: templateName || null,
+            });
+            console.log("Stored document info for download:", {
+              id: documentId,
+              template_name: templateName,
+            });
+          } else {
+            console.warn("No document ID in 410 response. Full error:", error);
+            // Don't set to null yet - we'll try to fetch it when download is clicked
+          }
+
           if (status === "completed") {
             setStatus("already");
             setStatusMessage(
@@ -485,7 +674,6 @@ const SigningPage = () => {
             setStatus("already");
             setStatusMessage("This signing link is no longer active.");
           }
-          setDocument(null);
           return;
         }
 
@@ -594,7 +782,8 @@ const SigningPage = () => {
       ) || [];
 
     if (signaturePlaceholders.length === 0) {
-      setFormError("No signature fields found in this document.");
+      setValidationMessage("No signature fields found in this document.");
+      setValidationDialogOpen(true);
       return;
     }
 
@@ -606,7 +795,7 @@ const SigningPage = () => {
         signatureTypesByPlaceholder[placeholder.id] ||
         (signatureImages[placeholder.id] ? "image" : "text");
 
-      if (placeholderType === "image") {
+      if (placeholderType === "image" || placeholderType === "draw") {
         if (!signatureImages[placeholder.id]) {
           missingSignatures.push(placeholder.label || "signature");
         }
@@ -618,15 +807,36 @@ const SigningPage = () => {
       }
     }
 
-    if (missingSignatures.length > 0) {
-      const fieldNames = missingSignatures.join(", ");
-      setFormError(
-        `Please sign all required fields before submitting. Missing: ${fieldNames}`
+    // Check if all checkbox fields are checked
+    const checkboxPlaceholders =
+      document.placeholders?.filter((p) => p.type === "checkbox") || [];
+    const missingCheckboxes = [];
+    for (const placeholder of checkboxPlaceholders) {
+      const fieldKey = resolveFieldKey(placeholder);
+      const isChecked = fieldValues[fieldKey] === true;
+      if (!isChecked) {
+        missingCheckboxes.push(placeholder.label || "checkbox");
+      }
+    }
+
+    // Show validation dialog if there are missing fields
+    if (missingSignatures.length > 0 || missingCheckboxes.length > 0) {
+      const missingFields = [];
+      if (missingSignatures.length > 0) {
+        missingFields.push(
+          `Missing signatures: ${missingSignatures.join(", ")}`
+        );
+      }
+      if (missingCheckboxes.length > 0) {
+        missingFields.push(`Unchecked boxes: ${missingCheckboxes.join(", ")}`);
+      }
+
+      setValidationMessage(
+        `All the required fields have not been signed. Please complete the following before submitting:\n\n${missingFields.join(
+          "\n"
+        )}`
       );
-      // Show alert popup
-      alert(
-        `You didn't sign the agreement. Please sign all required fields: ${fieldNames}`
-      );
+      setValidationDialogOpen(true);
       return;
     }
 
@@ -640,9 +850,9 @@ const SigningPage = () => {
       const placeholderType =
         signatureTypesByPlaceholder[signaturePlaceholder.id] || signatureType;
 
-      if (placeholderType === "image") {
+      if (placeholderType === "image" || placeholderType === "draw") {
         signatureData = signatureImages[signaturePlaceholder.id];
-        signatureTypeToSend = "image";
+        signatureTypeToSend = "image"; // Draw signatures are sent as images
       } else {
         const textValue = fieldValues[fieldKey] || "";
         const trimmed = textValue.trim();
@@ -830,6 +1040,42 @@ const SigningPage = () => {
   }
 
   if (status === "completed") {
+    const handleDownload = async () => {
+      if (!document?.id) {
+        console.error("Document ID not available");
+        return;
+      }
+
+      try {
+        console.log("Starting download for document ID:", document.id);
+        const response = await fetch(
+          `${API_BASE_URL}/api/documents/${document.id}/download`
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Download failed:", response.status, errorText);
+          throw new Error(`Failed to download PDF: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        console.log("Blob received, size:", blob.size);
+        const url = window.URL.createObjectURL(blob);
+        const link = window.document.createElement("a");
+        link.href = url;
+        link.download = `${document.template_name || "document"}-signed.pdf`;
+        link.style.display = "none";
+        window.document.body.appendChild(link);
+        link.click();
+        window.URL.revokeObjectURL(url);
+        window.document.body.removeChild(link);
+        console.log("Download initiated successfully");
+      } catch (error) {
+        console.error("Error downloading PDF:", error);
+        setFormError("Failed to download PDF. Please try again.");
+      }
+    };
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <Card className="max-w-xl w-full shadow-lg border-border/60">
@@ -852,6 +1098,19 @@ const SigningPage = () => {
                 </span>
               </p>
             )}
+            <div className="flex flex-col gap-3 items-center">
+              <Button
+                type="button"
+                onClick={handleDownload}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                <Download className="h-4 w-4" />
+                Download Signed PDF
+              </Button>
+              {formError && (
+                <p className="text-sm text-red-600 mt-2">{formError}</p>
+              )}
+            </div>
             <p>
               You may now close this window. If you need to sign another
               document, use the link provided in the original email.
@@ -865,6 +1124,81 @@ const SigningPage = () => {
   if (status === "already" || status === "error") {
     const isCompleted = statusMessage?.includes("already been signed");
     const isExpired = statusMessage?.includes("expired");
+
+    const handleDownload = async () => {
+      // Try to get document ID from state first
+      let docId = document?.id;
+      let templateName = document?.template_name;
+
+      // If not available, try to fetch from token
+      if (!docId && token) {
+        console.log("Document ID not in state, trying to fetch from token...");
+        try {
+          const { documentsApi } = await import("@/services/api");
+          // This will throw a 410 error, but we can extract the document ID from it
+          try {
+            await documentsApi.getByToken(token);
+          } catch (fetchError) {
+            if (fetchError.status === 410 && fetchError.data) {
+              docId = fetchError.data.documentId || fetchError.data.id;
+              templateName =
+                fetchError.data.templateName || fetchError.data.template_name;
+              if (docId) {
+                // Update state for future use
+                setDocument({
+                  id: docId,
+                  template_name: templateName || null,
+                });
+                console.log("Fetched document ID from token:", docId);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching document ID:", error);
+        }
+      }
+
+      if (!docId) {
+        setFormError(
+          "Document ID not available for download. Please try refreshing the page."
+        );
+        console.error("Document ID not available:", { document, token });
+        return;
+      }
+
+      downloadPdfById(docId, templateName);
+    };
+
+    const downloadPdfById = async (docId, templateName) => {
+      try {
+        console.log("Starting download for document ID:", docId);
+        const response = await fetch(
+          `${API_BASE_URL}/api/documents/${docId}/download`
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Download failed:", response.status, errorText);
+          throw new Error(`Failed to download PDF: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        console.log("Blob received, size:", blob.size);
+        const url = window.URL.createObjectURL(blob);
+        const link = window.document.createElement("a");
+        link.href = url;
+        link.download = `${templateName || "document"}-signed.pdf`;
+        link.style.display = "none";
+        window.document.body.appendChild(link);
+        link.click();
+        window.URL.revokeObjectURL(url);
+        window.document.body.removeChild(link);
+        console.log("Download initiated successfully");
+      } catch (error) {
+        console.error("Error downloading PDF:", error);
+        setFormError("Failed to download PDF. Please try again.");
+      }
+    };
 
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -887,10 +1221,23 @@ const SigningPage = () => {
           </CardHeader>
           <CardContent className="text-xs md:text-sm text-muted-foreground text-center space-y-3">
             {isCompleted ? (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-green-600 font-medium">
                   ✓ This document has been successfully signed and completed.
                 </p>
+                <div className="flex flex-col gap-3 items-center">
+                  <Button
+                    type="button"
+                    onClick={handleDownload}
+                    className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Signed PDF
+                  </Button>
+                  {formError && (
+                    <p className="text-sm text-red-600 mt-2">{formError}</p>
+                  )}
+                </div>
                 <p>
                   If you need to sign a new document, please contact the
                   document owner to request a new signing link.
@@ -1274,7 +1621,8 @@ const SigningPage = () => {
               Place Your Signature
             </DialogTitle>
             <DialogDescription className="text-xs md:text-sm">
-              Choose a signature style or upload an image to sign this document.
+              Choose a signature style: type your name, draw your signature, or
+              upload an image.
             </DialogDescription>
           </DialogHeader>
           <Tabs
@@ -1295,18 +1643,31 @@ const SigningPage = () => {
                     { fontId: selectedSignatureFont }
                   );
                 }
+              } else if (value === "draw") {
+                setSignatureType("draw");
+                setImagePreview(null);
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = "";
+                }
               } else {
                 setSignatureType("image");
               }
             }}
           >
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger
                 value="text"
                 className="text-[0.7rem] md:text-xs lg:text-sm"
               >
                 <Type className="mr-1.5 md:mr-2 h-3.5 w-3.5 md:h-4 md:w-4" />
                 Text
+              </TabsTrigger>
+              <TabsTrigger
+                value="draw"
+                className="text-[0.7rem] md:text-xs lg:text-sm"
+              >
+                <PenTool className="mr-1.5 md:mr-2 h-3.5 w-3.5 md:h-4 md:w-4" />
+                Draw
               </TabsTrigger>
               <TabsTrigger
                 value="image"
@@ -1353,6 +1714,42 @@ const SigningPage = () => {
                 <p className="text-[0.65rem] md:text-xs text-muted-foreground">
                   We'll automatically update the document as you type or change
                   the style.
+                </p>
+              </div>
+            </TabsContent>
+            <TabsContent value="draw" className="space-y-4 pt-4">
+              <div className="space-y-3">
+                <Label className="text-xs md:text-sm">
+                  Draw your signature
+                </Label>
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-white">
+                  <canvas
+                    ref={canvasRef}
+                    className="w-full cursor-crosshair touch-none"
+                    style={{ height: "200px" }}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    className="text-xs md:text-sm"
+                    onClick={clearCanvas}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <p className="text-[0.65rem] md:text-xs text-muted-foreground">
+                  Use your mouse or touch screen to draw your signature. It will
+                  be automatically saved when you close this dialog.
                 </p>
               </div>
             </TabsContent>
@@ -1469,6 +1866,33 @@ const SigningPage = () => {
               onClick={closeSignatureDialog}
             >
               Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Validation Error Dialog */}
+      <Dialog
+        open={validationDialogOpen}
+        onOpenChange={setValidationDialogOpen}
+      >
+        <DialogContent className="sm:max-w-md border border-border bg-white text-slate-900 shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg md:text-xl flex items-center gap-2">
+              <Info className="h-5 w-5 text-amber-500" />
+              Incomplete Form
+            </DialogTitle>
+            <DialogDescription className="text-xs md:text-sm text-muted-foreground whitespace-pre-line">
+              {validationMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              className="text-xs md:text-sm"
+              onClick={() => setValidationDialogOpen(false)}
+            >
+              OK
             </Button>
           </DialogFooter>
         </DialogContent>

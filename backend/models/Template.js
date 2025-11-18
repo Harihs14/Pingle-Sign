@@ -3,6 +3,8 @@
  * Handles all database operations for templates
  */
 
+import { generateUniqueNumericId } from "../utils/security.js";
+
 export class Template {
   constructor(pool) {
     this.pool = pool;
@@ -33,11 +35,14 @@ export class Template {
    * Create a new template
    */
   async create({ name, pdfPath, placeholders = [] }) {
+    // Generate a unique random ID (3-5 digits)
+    const id = await generateUniqueNumericId(this.pool, "templates");
+
     const [result] = await this.pool.query(
-      "INSERT INTO templates (name, pdf_path, placeholders) VALUES (?, ?, ?)",
-      [name, pdfPath, JSON.stringify(placeholders)]
+      "INSERT INTO templates (id, name, pdf_path, placeholders) VALUES (?, ?, ?, ?)",
+      [id, name, pdfPath, JSON.stringify(placeholders)]
     );
-    return result.insertId;
+    return id;
   }
 
   /**
@@ -71,20 +76,7 @@ export class Template {
       [id]
     );
 
-    if (result.affectedRows > 0) {
-      // Reset AUTO_INCREMENT to continue from the highest existing ID
-      // This ensures IDs increment sequentially even after deletions
-      const [maxResult] = await this.pool.query(
-        "SELECT COALESCE(MAX(id), 0) as maxId FROM templates"
-      );
-      const maxId = maxResult[0]?.maxId || 0;
-
-      // Set AUTO_INCREMENT to maxId + 1
-      await this.pool.query(`ALTER TABLE templates AUTO_INCREMENT = ?`, [
-        maxId + 1,
-      ]);
-    }
-
+    // No need to reset AUTO_INCREMENT since we're using random IDs
     return result.affectedRows > 0;
   }
 

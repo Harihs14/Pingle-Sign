@@ -176,8 +176,8 @@ export class EmailService {
   getAcknowledgementEmailTemplate({ signerName, templateName }) {
     const bodySections = `
       <div style="text-align:center;margin:0 0 40px 0;">
-        <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;background:#f0fdf4;margin:0 auto 24px auto;border:2px solid #dcfce7;">
-          <span style="color:#16a34a;font-size:32px;font-weight:600;">✓</span>
+        <div style="display:inline-block;width:64px;height:64px;border-radius:50%;background:#f0fdf4;margin:0 auto 24px auto;border:2px solid #dcfce7;line-height:64px;text-align:center;vertical-align:middle;">
+          <span style="color:#16a34a;font-size:32px;font-weight:600;line-height:64px;display:inline-block;vertical-align:middle;">✓</span>
         </div>
         <p style="margin:0 0 8px 0;color:#0f172a;font-size:24px;font-weight:600;line-height:1.2;">
           Document Signed

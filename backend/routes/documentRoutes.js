@@ -46,6 +46,17 @@ export function initDocumentRoutes(pool) {
    */
   router.post("/:id/sign", validateDocumentId, documentController.signDocument);
 
+  /**
+   * @route   GET /api/documents/:id/download
+   * @desc    Download signed PDF
+   * @access  Public
+   */
+  router.get(
+    "/:id/download",
+    validateDocumentId,
+    documentController.downloadSignedPdf
+  );
+
   return router;
 }
 

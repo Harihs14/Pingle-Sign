@@ -62,6 +62,8 @@ export class DocumentController {
           error: "Document already signed",
           message: "This document has already been signed and completed.",
           status: "completed",
+          documentId: document.id, // Include document ID for download
+          templateName: document.template_name, // Include template name for download
         });
       }
 
@@ -72,6 +74,7 @@ export class DocumentController {
           error: "Document expired",
           message: "This signing link has expired.",
           status: "expired",
+          documentId: document.id, // Include document ID for download
         });
       }
 
@@ -82,6 +85,7 @@ export class DocumentController {
           error: "Document not available",
           message: "This signing link is no longer active.",
           status: document.status,
+          documentId: document.id, // Include document ID for download
         });
       }
 
@@ -220,8 +224,8 @@ export class DocumentController {
       const { id } = req.params;
       const { signatureData, signatureType, fieldValues } = req.body;
 
-      // Get document
-      const document = await this.documentModel.findById(id);
+      // Get document (only pending documents can be signed)
+      const document = await this.documentModel.findById(id, "pending");
       if (!document) {
         return next(new NotFoundError("Document"));
       }
@@ -403,6 +407,79 @@ export class DocumentController {
     } catch (error) {
       console.error("Error signing document:", error);
       next(new DatabaseError("Failed to sign document"));
+    }
+  };
+
+  /**
+   * Download signed PDF
+   */
+  downloadSignedPdf = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      console.log(`📥 Download request for document ID: ${id}`);
+
+      // Get document (without status filter to allow completed documents)
+      const document = await this.documentModel.findById(id);
+      if (!document) {
+        console.log(`❌ Document not found: ${id}`);
+        return next(new NotFoundError("Document"));
+      }
+
+      console.log(
+        `📄 Document found - Status: ${document.status}, Signed PDF Path: ${document.signed_pdf_path}`
+      );
+
+      // Check if document is signed
+      if (document.status !== "completed" || !document.signed_pdf_path) {
+        console.log(`❌ Document not completed or missing signed PDF path`);
+        return res.status(404).json({
+          success: false,
+          error: "Signed PDF not found",
+          message: "This document has not been signed yet.",
+        });
+      }
+
+      // Build full path to signed PDF
+      const signedPdfFullPath = path.join(
+        __dirname,
+        "..",
+        document.signed_pdf_path
+      );
+
+      console.log(`📁 Looking for signed PDF at: ${signedPdfFullPath}`);
+
+      // Check if file exists
+      try {
+        await fs.access(signedPdfFullPath);
+        console.log(`✅ Signed PDF file found: ${signedPdfFullPath}`);
+      } catch (error) {
+        console.error(
+          `❌ Signed PDF file not found: ${signedPdfFullPath}`,
+          error
+        );
+        return next(new NotFoundError("Signed PDF file not found"));
+      }
+
+      // Get filename from path
+      const filename = path.basename(document.signed_pdf_path);
+      const templateName = document.template_name || "document";
+      const safeFilename = `${templateName}-signed.pdf`.replace(
+        /[^a-z0-9.-]/gi,
+        "_"
+      );
+
+      // Set headers and send file
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeFilename}"`
+      );
+
+      const fileBuffer = await fs.readFile(signedPdfFullPath);
+      res.send(fileBuffer);
+    } catch (error) {
+      console.error("Error downloading signed PDF:", error);
+      next(new DatabaseError("Failed to download signed PDF"));
     }
   };
 }

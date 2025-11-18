@@ -52,12 +52,18 @@ async function request(endpoint, options = {}) {
 
       if (!response.ok) {
         // For 410 (Gone) status, include the full result for status checking
+        // This is an expected response for already-signed documents, not a real error
         const errorData = response.status === 410 ? result : null;
-        throw new ApiError(
+        const error = new ApiError(
           result.error || result.message || "An error occurred",
           response.status,
           errorData || result
         );
+        // Mark 410 errors as expected/handled to prevent unnecessary console noise
+        if (response.status === 410) {
+          error.isExpected = true;
+        }
+        throw error;
       }
 
       // Extract data from response if it exists, otherwise return the whole response

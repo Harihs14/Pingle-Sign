@@ -3,6 +3,8 @@
  * Handles all database operations for documents
  */
 
+import { generateUniqueNumericId } from "../utils/security.js";
+
 export class Document {
   constructor(pool) {
     this.pool = pool;
@@ -12,10 +14,14 @@ export class Document {
    * Create a new document
    */
   async create({ templateId, signerEmail, signerName, data, token }) {
+    // Generate a unique random ID (3-5 digits)
+    const id = await generateUniqueNumericId(this.pool, "documents");
+
     const [result] = await this.pool.query(
-      `INSERT INTO documents (template_id, signer_email, signer_name, data, token) 
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO documents (id, template_id, signer_email, signer_name, data, token) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
+        id,
         templateId,
         signerEmail,
         signerName || null,
@@ -23,7 +29,7 @@ export class Document {
         token,
       ]
     );
-    return result.insertId;
+    return id;
   }
 
   /**
@@ -42,15 +48,22 @@ export class Document {
 
   /**
    * Find document by ID
+   * @param {number} id - Document ID
+   * @param {string} status - Optional status filter (if not provided, returns any status)
    */
-  async findById(id) {
-    const [documents] = await this.pool.query(
-      `SELECT d.*, t.pdf_path, t.placeholders 
+  async findById(id, status = null) {
+    let query = `SELECT d.*, t.pdf_path, t.placeholders, t.name as template_name
        FROM documents d 
        JOIN templates t ON d.template_id = t.id 
-       WHERE d.id = ? AND d.status = 'pending'`,
-      [id]
-    );
+       WHERE d.id = ?`;
+    const params = [id];
+
+    if (status) {
+      query += ` AND d.status = ?`;
+      params.push(status);
+    }
+
+    const [documents] = await this.pool.query(query, params);
     return documents.length > 0 ? documents[0] : null;
   }
 
