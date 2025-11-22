@@ -17,7 +17,7 @@ const EditorPage = () => {
         return;
       }
     }
-    navigate("/");
+    navigate("/templates");
   };
 
   const handleSaveSuccess = () => {
@@ -38,6 +38,23 @@ const EditorPage = () => {
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
+      {/* Header with back button */}
+      <header className="flex items-center gap-4 border-b border-border bg-background px-4 py-3 shadow-sm">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleBack}
+          className="h-9 w-9"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-semibold truncate">
+            {templateName || fileName || "Edit Template"}
+          </h1>
+        </div>
+      </header>
       <main className="flex-1 overflow-hidden">
         <PDFEditor
           pdfData={pdfData}
