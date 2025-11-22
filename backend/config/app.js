@@ -12,7 +12,7 @@ export const appConfig = {
   port: parseInt(process.env.PORT || "3001", 10),
   nodeEnv: process.env.NODE_ENV || "development",
   baseUrl: process.env.BASE_URL || "http://localhost:5173",
-  // Upload directories - all in backend/uploads/
+  // Upload directories - all in backend/uploads/ (fallback for local storage)
   uploadsDir: path.join(__dirname, "../uploads"),
   templatesDir: path.join(__dirname, "../uploads/templates"),
   signedDir: path.join(__dirname, "../uploads/signed"),
@@ -22,6 +22,13 @@ export const appConfig = {
   allowedMimeTypes: ["application/pdf"],
   tokenExpiry: parseInt(process.env.TOKEN_EXPIRY || "2592000000", 10), // 30 days default
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // S3 Configuration
+  useS3: process.env.USE_S3 === "true" || process.env.USE_S3 === "1",
+  s3Bucket: process.env.AWS_S3_BUCKET_NAME,
+  s3Region: process.env.AWS_REGION || "us-east-1",
+  // S3 path prefixes
+  s3TemplatesPrefix: process.env.S3_TEMPLATES_PREFIX || "templates",
+  s3SignedPrefix: process.env.S3_SIGNED_PREFIX || "signed",
 };
 
 export default appConfig;

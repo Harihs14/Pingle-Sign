@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import { fileURLToPath } from "url";
 import { Template } from "../models/Template.js";
 import { NotFoundError, FileError, DatabaseError } from "../utils/errors.js";
+import s3Service from "../services/s3Service.js";
 import appConfig from "../config/app.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -45,38 +46,59 @@ export class TemplateController {
         return next(new NotFoundError("Template"));
       }
 
-      // Read PDF file - handle both old and new path formats
-      let normalizedPath = template.pdf_path;
-      if (
-        normalizedPath.startsWith("uploads/template-") &&
-        !normalizedPath.startsWith("uploads/templates/")
-      ) {
-        normalizedPath = normalizedPath.replace(
-          "uploads/",
-          "uploads/templates/"
-        );
-      } else if (
-        normalizedPath.startsWith("uploads/") &&
-        !normalizedPath.includes("/templates/") &&
-        !normalizedPath.includes("/signed/")
-      ) {
-        const filename = normalizedPath.replace("uploads/", "");
-        if (filename.startsWith("template-")) {
-          normalizedPath = `uploads/templates/${filename}`;
-        }
-      }
-
-      const pdfPath = path.join(__dirname, "../", normalizedPath);
-      console.log(
-        `📄 Reading template PDF from: ${pdfPath} (original: ${template.pdf_path})`
-      );
-
+      // Read PDF file - support both S3 and local filesystem
       let pdfBuffer;
-      try {
-        pdfBuffer = await fs.readFile(pdfPath);
-      } catch (error) {
-        console.error(`❌ Error reading template PDF: ${error.message}`);
-        return next(new FileError(`PDF file not found at ${normalizedPath}`));
+      let pdfPath = template.pdf_path;
+
+      // Check if it's an S3 key
+      if (
+        s3Service.isEnabled() &&
+        (pdfPath.startsWith("templates/") ||
+          pdfPath.startsWith(appConfig.s3TemplatesPrefix + "/"))
+      ) {
+        try {
+          console.log(`📄 Reading template PDF from S3: ${pdfPath}`);
+          pdfBuffer = await s3Service.downloadFile(pdfPath);
+          console.log(`✅ Template PDF read from S3`);
+        } catch (error) {
+          console.error(
+            `❌ Error reading template PDF from S3: ${error.message}`
+          );
+          return next(new FileError(`PDF file not found in S3: ${pdfPath}`));
+        }
+      } else {
+        // Local filesystem - handle both old and new path formats
+        let normalizedPath = template.pdf_path;
+        if (
+          normalizedPath.startsWith("uploads/template-") &&
+          !normalizedPath.startsWith("uploads/templates/")
+        ) {
+          normalizedPath = normalizedPath.replace(
+            "uploads/",
+            "uploads/templates/"
+          );
+        } else if (
+          normalizedPath.startsWith("uploads/") &&
+          !normalizedPath.includes("/templates/") &&
+          !normalizedPath.includes("/signed/")
+        ) {
+          const filename = normalizedPath.replace("uploads/", "");
+          if (filename.startsWith("template-")) {
+            normalizedPath = `uploads/templates/${filename}`;
+          }
+        }
+
+        pdfPath = path.join(__dirname, "../", normalizedPath);
+        console.log(
+          `📄 Reading template PDF from: ${pdfPath} (original: ${template.pdf_path})`
+        );
+
+        try {
+          pdfBuffer = await fs.readFile(pdfPath);
+        } catch (error) {
+          console.error(`❌ Error reading template PDF: ${error.message}`);
+          return next(new FileError(`PDF file not found at ${normalizedPath}`));
+        }
       }
 
       // Parse placeholders
@@ -121,7 +143,32 @@ export class TemplateController {
         });
       }
 
-      const pdfPath = `uploads/templates/${file.filename}`;
+      let pdfPath;
+
+      // If S3 is enabled, upload to S3
+      if (s3Service.isEnabled()) {
+        try {
+          // Read the uploaded file
+          const fileBuffer = await fs.readFile(file.path);
+          // Upload to S3
+          const s3Key = `${appConfig.s3TemplatesPrefix}/${file.filename}`;
+          await s3Service.uploadFile(fileBuffer, s3Key, "application/pdf");
+          pdfPath = s3Key;
+          // Delete local file after uploading to S3
+          await fs
+            .unlink(file.path)
+            .catch((err) => console.warn("Could not delete local file:", err));
+          console.log(`✅ Template uploaded to S3: ${s3Key}`);
+        } catch (error) {
+          console.error(`❌ Error uploading template to S3:`, error);
+          // Fallback to local storage if S3 upload fails
+          pdfPath = `uploads/templates/${file.filename}`;
+        }
+      } else {
+        // Local filesystem
+        pdfPath = `uploads/templates/${file.filename}`;
+      }
+
       const templateId = await this.templateModel.create({
         name,
         pdfPath,
@@ -219,33 +266,51 @@ export class TemplateController {
         return next(new NotFoundError("Template"));
       }
 
-      // Delete PDF file - handle both old and new path formats
-      let normalizedPath = template.pdf_path;
-      if (
-        normalizedPath.startsWith("uploads/template-") &&
-        !normalizedPath.startsWith("uploads/templates/")
-      ) {
-        normalizedPath = normalizedPath.replace(
-          "uploads/",
-          "uploads/templates/"
-        );
-      } else if (
-        normalizedPath.startsWith("uploads/") &&
-        !normalizedPath.includes("/templates/") &&
-        !normalizedPath.includes("/signed/")
-      ) {
-        const filename = normalizedPath.replace("uploads/", "");
-        if (filename.startsWith("template-")) {
-          normalizedPath = `uploads/templates/${filename}`;
-        }
-      }
+      // Delete PDF file - support both S3 and local filesystem
+      const pdfPath = template.pdf_path;
 
-      const pdfPath = path.join(__dirname, "../", normalizedPath);
-      try {
-        await fs.unlink(pdfPath);
-      } catch (error) {
-        console.warn("Could not delete PDF file:", error);
-        // Continue with database deletion even if file deletion fails
+      // Check if it's an S3 key
+      if (
+        s3Service.isEnabled() &&
+        (pdfPath.startsWith("templates/") ||
+          pdfPath.startsWith(appConfig.s3TemplatesPrefix + "/"))
+      ) {
+        try {
+          await s3Service.deleteFile(pdfPath);
+          console.log(`✅ Template deleted from S3: ${pdfPath}`);
+        } catch (error) {
+          console.warn("Could not delete PDF file from S3:", error);
+          // Continue with database deletion even if file deletion fails
+        }
+      } else {
+        // Local filesystem - handle both old and new path formats
+        let normalizedPath = template.pdf_path;
+        if (
+          normalizedPath.startsWith("uploads/template-") &&
+          !normalizedPath.startsWith("uploads/templates/")
+        ) {
+          normalizedPath = normalizedPath.replace(
+            "uploads/",
+            "uploads/templates/"
+          );
+        } else if (
+          normalizedPath.startsWith("uploads/") &&
+          !normalizedPath.includes("/templates/") &&
+          !normalizedPath.includes("/signed/")
+        ) {
+          const filename = normalizedPath.replace("uploads/", "");
+          if (filename.startsWith("template-")) {
+            normalizedPath = `uploads/templates/${filename}`;
+          }
+        }
+
+        const localPdfPath = path.join(__dirname, "../", normalizedPath);
+        try {
+          await fs.unlink(localPdfPath);
+        } catch (error) {
+          console.warn("Could not delete PDF file:", error);
+          // Continue with database deletion even if file deletion fails
+        }
       }
 
       // Delete from database

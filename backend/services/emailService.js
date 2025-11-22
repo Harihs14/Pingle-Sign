@@ -1,4 +1,6 @@
 import { getTransporter, getEmailConfig } from "../config/email.js";
+import s3Service from "./s3Service.js";
+import fs from "fs/promises";
 
 const LOGO_URL = "https://i.ibb.co/B5JYw8Yk/pingle-logo.png";
 const COMPANY_NAME = "Pingle";
@@ -49,13 +51,44 @@ export class EmailService {
   /**
    * Send acknowledgement email to user with signed PDF
    */
-  async sendSigningAcknowledgement({ to, signerName, templateName, pdfPath }) {
+  async sendSigningAcknowledgement({
+    to,
+    signerName,
+    templateName,
+    pdfPath,
+    isS3Key = false,
+  }) {
     if (!this.transporter) {
       console.warn("Email transporter not available. Skipping email send.");
       return false;
     }
 
     try {
+      // Handle S3 PDFs - download temporarily for email attachment
+      let pdfAttachment;
+      if (isS3Key && s3Service.isEnabled()) {
+        try {
+          const pdfBuffer = await s3Service.downloadFile(pdfPath);
+          pdfAttachment = {
+            filename: `signed-${templateName || "document"}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          };
+          console.log(`✅ PDF downloaded from S3 for email attachment`);
+        } catch (error) {
+          console.error(`❌ Error downloading PDF from S3 for email:`, error);
+          // Continue without attachment if S3 download fails
+          pdfAttachment = null;
+        }
+      } else {
+        // Local filesystem
+        pdfAttachment = {
+          filename: `signed-${templateName || "document"}.pdf`,
+          path: pdfPath,
+          contentType: "application/pdf",
+        };
+      }
+
       const mailOptions = {
         from: `"${COMPANY_NAME} Signatures" <${this.config.auth.user}>`,
         to,
@@ -64,13 +97,7 @@ export class EmailService {
           signerName,
           templateName,
         }),
-        attachments: [
-          {
-            filename: `signed-${templateName || "document"}.pdf`,
-            path: pdfPath,
-            contentType: "application/pdf",
-          },
-        ],
+        attachments: pdfAttachment ? [pdfAttachment] : [],
       };
 
       await this.transporter.sendMail(mailOptions);

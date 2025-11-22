@@ -2,6 +2,8 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import s3Service from "./s3Service.js";
+import appConfig from "../config/app.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +16,7 @@ const __dirname = path.dirname(__filename);
 export class PdfService {
   constructor(uploadDir) {
     this.uploadDir = uploadDir;
+    this.s3Service = s3Service;
   }
 
   /**
@@ -28,8 +31,27 @@ export class PdfService {
     fieldValues,
   }) {
     try {
-      // Read PDF file
-      const pdfBuffer = await fs.readFile(templatePath);
+      // Read PDF file - support both S3 and local filesystem
+      let pdfBuffer;
+      // Check if it's an S3 key (starts with templates/ or signed/ prefix)
+      const isS3Key =
+        this.s3Service.isEnabled() &&
+        (templatePath.startsWith("templates/") ||
+          templatePath.startsWith("signed/") ||
+          templatePath.startsWith(appConfig.s3TemplatesPrefix + "/") ||
+          templatePath.startsWith(appConfig.s3SignedPrefix + "/"));
+
+      if (isS3Key) {
+        // It's an S3 key, download from S3
+        pdfBuffer = await this.s3Service.downloadFile(templatePath);
+        console.log(`✅ Template PDF downloaded from S3: ${templatePath}`);
+      } else {
+        // Local filesystem
+        pdfBuffer = await fs.readFile(templatePath);
+        console.log(
+          `✅ Template PDF read from local filesystem: ${templatePath}`
+        );
+      }
       const pdfDoc = await PDFDocument.load(pdfBuffer);
       const pages = pdfDoc.getPages();
 
@@ -421,48 +443,68 @@ export class PdfService {
    */
   async saveSignedPdf(pdfBytes, documentId) {
     console.log(`📝 Attempting to save signed PDF for document ${documentId}`);
-    console.log(`📁 Upload directory: ${this.uploadDir}`);
     console.log(`📊 PDF bytes length: ${pdfBytes?.length || 0}`);
 
-    // Ensure uploads directory exists
-    try {
-      await fs.mkdir(this.uploadDir, { recursive: true });
-      console.log(`✅ Uploads directory exists or created: ${this.uploadDir}`);
-    } catch (error) {
-      console.error("❌ Error creating uploads directory:", error);
-      throw new Error(`Failed to create uploads directory: ${error.message}`);
-    }
+    // Ensure pdfBytes is a Buffer or Uint8Array
+    const buffer = Buffer.isBuffer(pdfBytes) ? pdfBytes : Buffer.from(pdfBytes);
 
     const signedFileName = `signed-${Date.now()}-${documentId}.pdf`;
-    const signedPdfPath = path.join(this.uploadDir, signedFileName);
-    console.log(`💾 Saving to: ${signedPdfPath}`);
 
-    try {
-      // Ensure pdfBytes is a Buffer or Uint8Array
-      const buffer = Buffer.isBuffer(pdfBytes)
-        ? pdfBytes
-        : Buffer.from(pdfBytes);
-
-      await fs.writeFile(signedPdfPath, buffer);
-      console.log(`✅ File written successfully`);
-
-      // Verify file was created
+    // Use S3 if enabled, otherwise use local filesystem
+    if (this.s3Service.isEnabled()) {
       try {
-        const stats = await fs.stat(signedPdfPath);
-        console.log(`✅ File verified - Size: ${stats.size} bytes`);
-        console.log(`✅ Signed PDF saved successfully: ${signedPdfPath}`);
-      } catch (accessError) {
-        console.error(`❌ File was not created: ${signedPdfPath}`, accessError);
-        throw new Error("Failed to verify signed PDF file creation");
+        const s3Key = `${appConfig.s3SignedPrefix}/${signedFileName}`;
+        await this.s3Service.uploadFile(buffer, s3Key, "application/pdf");
+        console.log(`✅ Signed PDF saved to S3: ${s3Key}`);
+        // Return S3 key format for database storage
+        return s3Key;
+      } catch (error) {
+        console.error(`❌ Error saving signed PDF to S3:`, error);
+        throw new Error(`Failed to save signed PDF to S3: ${error.message}`);
+      }
+    } else {
+      // Local filesystem fallback
+      console.log(`📁 Upload directory: ${this.uploadDir}`);
+
+      // Ensure uploads directory exists
+      try {
+        await fs.mkdir(this.uploadDir, { recursive: true });
+        console.log(
+          `✅ Uploads directory exists or created: ${this.uploadDir}`
+        );
+      } catch (error) {
+        console.error("❌ Error creating uploads directory:", error);
+        throw new Error(`Failed to create uploads directory: ${error.message}`);
       }
 
-      const relativePath = `uploads/signed/${signedFileName}`;
-      console.log(`✅ Returning relative path: ${relativePath}`);
-      return relativePath;
-    } catch (error) {
-      console.error(`❌ Error saving signed PDF to ${signedPdfPath}:`, error);
-      console.error(`❌ Error stack:`, error.stack);
-      throw new Error(`Failed to save signed PDF: ${error.message}`);
+      const signedPdfPath = path.join(this.uploadDir, signedFileName);
+      console.log(`💾 Saving to: ${signedPdfPath}`);
+
+      try {
+        await fs.writeFile(signedPdfPath, buffer);
+        console.log(`✅ File written successfully`);
+
+        // Verify file was created
+        try {
+          const stats = await fs.stat(signedPdfPath);
+          console.log(`✅ File verified - Size: ${stats.size} bytes`);
+          console.log(`✅ Signed PDF saved successfully: ${signedPdfPath}`);
+        } catch (accessError) {
+          console.error(
+            `❌ File was not created: ${signedPdfPath}`,
+            accessError
+          );
+          throw new Error("Failed to verify signed PDF file creation");
+        }
+
+        const relativePath = `uploads/signed/${signedFileName}`;
+        console.log(`✅ Returning relative path: ${relativePath}`);
+        return relativePath;
+      } catch (error) {
+        console.error(`❌ Error saving signed PDF to ${signedPdfPath}:`, error);
+        console.error(`❌ Error stack:`, error.stack);
+        throw new Error(`Failed to save signed PDF: ${error.message}`);
+      }
     }
   }
 }

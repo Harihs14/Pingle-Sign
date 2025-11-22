@@ -8,6 +8,7 @@ import { generateToken } from "../utils/security.js";
 import EmailService from "../services/emailService.js";
 import PdfService from "../services/pdfService.js";
 import WebhookService from "../services/webhookService.js";
+import s3Service from "../services/s3Service.js";
 import appConfig from "../config/app.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -89,47 +90,69 @@ export class DocumentController {
         });
       }
 
-      // Read PDF file - handle both old and new path formats
-      // Normalize path: if it's "uploads/template-..." convert to "uploads/templates/template-..."
-      let normalizedPath = document.pdf_path;
-      if (
-        normalizedPath.startsWith("uploads/template-") &&
-        !normalizedPath.startsWith("uploads/templates/")
-      ) {
-        normalizedPath = normalizedPath.replace(
-          "uploads/",
-          "uploads/templates/"
-        );
-      } else if (
-        normalizedPath.startsWith("uploads/") &&
-        !normalizedPath.includes("/templates/") &&
-        !normalizedPath.includes("/signed/")
-      ) {
-        // If it's just "uploads/filename" and doesn't have a subdirectory, assume it's a template
-        const filename = normalizedPath.replace("uploads/", "");
-        if (filename.startsWith("template-")) {
-          normalizedPath = `uploads/templates/${filename}`;
-        }
-      }
-
-      // __dirname is backend/controllers, so ../ goes to backend/
-      // normalizedPath is like "uploads/templates/template-xxx.pdf"
-      const pdfPath = path.join(__dirname, "..", normalizedPath);
-      console.log(`📄 __dirname: ${__dirname}`);
-      console.log(`📄 Attempting to read PDF from: ${pdfPath}`);
-      console.log(`📄 Original path from DB: ${document.pdf_path}`);
-      console.log(`📄 Normalized path: ${normalizedPath}`);
-
+      // Read PDF file - support both S3 and local filesystem
       let pdfBuffer;
-      try {
-        pdfBuffer = await fs.readFile(pdfPath);
-        console.log(`✅ PDF file read successfully: ${pdfPath}`);
-      } catch (error) {
-        console.error(`❌ Error reading PDF file from ${pdfPath}:`, error);
-        console.error(`❌ Error details:`, error.message);
-        return next(
-          new NotFoundError(`PDF file not found at ${normalizedPath}`)
-        );
+      let pdfPath = document.pdf_path;
+
+      // Check if it's an S3 key (starts with templates/ or signed/ and S3 is enabled)
+      if (
+        s3Service.isEnabled() &&
+        (pdfPath.startsWith("templates/") ||
+          pdfPath.startsWith("signed/") ||
+          pdfPath.startsWith(appConfig.s3TemplatesPrefix + "/"))
+      ) {
+        try {
+          // It's an S3 key
+          pdfBuffer = await s3Service.downloadFile(pdfPath);
+          console.log(`✅ PDF file read from S3: ${pdfPath}`);
+        } catch (error) {
+          console.error(`❌ Error reading PDF file from S3 ${pdfPath}:`, error);
+          return next(
+            new NotFoundError(`PDF file not found in S3: ${pdfPath}`)
+          );
+        }
+      } else {
+        // Local filesystem - handle both old and new path formats
+        // Normalize path: if it's "uploads/template-..." convert to "uploads/templates/template-..."
+        let normalizedPath = document.pdf_path;
+        if (
+          normalizedPath.startsWith("uploads/template-") &&
+          !normalizedPath.startsWith("uploads/templates/")
+        ) {
+          normalizedPath = normalizedPath.replace(
+            "uploads/",
+            "uploads/templates/"
+          );
+        } else if (
+          normalizedPath.startsWith("uploads/") &&
+          !normalizedPath.includes("/templates/") &&
+          !normalizedPath.includes("/signed/")
+        ) {
+          // If it's just "uploads/filename" and doesn't have a subdirectory, assume it's a template
+          const filename = normalizedPath.replace("uploads/", "");
+          if (filename.startsWith("template-")) {
+            normalizedPath = `uploads/templates/${filename}`;
+          }
+        }
+
+        // __dirname is backend/controllers, so ../ goes to backend/
+        // normalizedPath is like "uploads/templates/template-xxx.pdf"
+        pdfPath = path.join(__dirname, "..", normalizedPath);
+        console.log(`📄 __dirname: ${__dirname}`);
+        console.log(`📄 Attempting to read PDF from: ${pdfPath}`);
+        console.log(`📄 Original path from DB: ${document.pdf_path}`);
+        console.log(`📄 Normalized path: ${normalizedPath}`);
+
+        try {
+          pdfBuffer = await fs.readFile(pdfPath);
+          console.log(`✅ PDF file read successfully: ${pdfPath}`);
+        } catch (error) {
+          console.error(`❌ Error reading PDF file from ${pdfPath}:`, error);
+          console.error(`❌ Error details:`, error.message);
+          return next(
+            new NotFoundError(`PDF file not found at ${normalizedPath}`)
+          );
+        }
       }
 
       // Parse JSON fields
@@ -252,33 +275,47 @@ export class DocumentController {
         return next(new NotFoundError("Template"));
       }
 
-      // Normalize template path - handle both old and new formats
-      let normalizedTemplatePath = document.pdf_path;
-      if (
-        normalizedTemplatePath.startsWith("uploads/template-") &&
-        !normalizedTemplatePath.startsWith("uploads/templates/")
-      ) {
-        normalizedTemplatePath = normalizedTemplatePath.replace(
-          "uploads/",
-          "uploads/templates/"
-        );
-      } else if (
-        normalizedTemplatePath.startsWith("uploads/") &&
-        !normalizedTemplatePath.includes("/templates/") &&
-        !normalizedTemplatePath.includes("/signed/")
-      ) {
-        const filename = normalizedTemplatePath.replace("uploads/", "");
-        if (filename.startsWith("template-")) {
-          normalizedTemplatePath = `uploads/templates/${filename}`;
-        }
-      }
+      // Determine template path - support both S3 and local filesystem
+      let templatePath = document.pdf_path;
 
-      // __dirname is backend/controllers, so ../ goes to backend/
-      const templatePath = path.join(__dirname, "..", normalizedTemplatePath);
-      console.log(`📄 __dirname: ${__dirname}`);
-      console.log(
-        `📄 Using template path for signing: ${templatePath} (original: ${document.pdf_path})`
-      );
+      // If S3 is enabled and path looks like an S3 key, use it directly
+      if (
+        s3Service.isEnabled() &&
+        (templatePath.startsWith("templates/") ||
+          templatePath.startsWith(appConfig.s3TemplatesPrefix + "/"))
+      ) {
+        // It's already an S3 key, use it as-is
+        templatePath = templatePath;
+        console.log(`📄 Using S3 template path for signing: ${templatePath}`);
+      } else {
+        // Local filesystem - normalize template path - handle both old and new formats
+        let normalizedTemplatePath = document.pdf_path;
+        if (
+          normalizedTemplatePath.startsWith("uploads/template-") &&
+          !normalizedTemplatePath.startsWith("uploads/templates/")
+        ) {
+          normalizedTemplatePath = normalizedTemplatePath.replace(
+            "uploads/",
+            "uploads/templates/"
+          );
+        } else if (
+          normalizedTemplatePath.startsWith("uploads/") &&
+          !normalizedTemplatePath.includes("/templates/") &&
+          !normalizedTemplatePath.includes("/signed/")
+        ) {
+          const filename = normalizedTemplatePath.replace("uploads/", "");
+          if (filename.startsWith("template-")) {
+            normalizedTemplatePath = `uploads/templates/${filename}`;
+          }
+        }
+
+        // __dirname is backend/controllers, so ../ goes to backend/
+        templatePath = path.join(__dirname, "..", normalizedTemplatePath);
+        console.log(`📄 __dirname: ${__dirname}`);
+        console.log(
+          `📄 Using template path for signing: ${templatePath} (original: ${document.pdf_path})`
+        );
+      }
 
       // Fill PDF with signatures and data
       console.log(`📄 Starting to fill PDF for document ${id}`);
@@ -355,14 +392,24 @@ export class DocumentController {
       }
 
       // Send acknowledgement email to user with signed PDF (non-blocking)
-      const signedPdfFullPath = path.join(__dirname, "..", signedPdfPath);
+      // For S3, we need to download the file temporarily or use presigned URL
+      // For now, we'll pass the S3 key and let emailService handle it
+      const pdfPathForEmail =
+        s3Service.isEnabled() &&
+        signedPdfPath.startsWith(appConfig.s3SignedPrefix + "/")
+          ? signedPdfPath // S3 key
+          : path.join(__dirname, "..", signedPdfPath); // Local path
+
       if (document.signer_email) {
         this.emailService
           .sendSigningAcknowledgement({
             to: document.signer_email,
             signerName: document.signer_name,
             templateName: template.name,
-            pdfPath: signedPdfFullPath,
+            pdfPath: pdfPathForEmail,
+            isS3Key:
+              s3Service.isEnabled() &&
+              signedPdfPath.startsWith(appConfig.s3SignedPrefix + "/"),
           })
           .catch((error) => {
             console.error(
@@ -439,29 +486,47 @@ export class DocumentController {
         });
       }
 
-      // Build full path to signed PDF
-      const signedPdfFullPath = path.join(
-        __dirname,
-        "..",
-        document.signed_pdf_path
-      );
+      // Download signed PDF - support both S3 and local filesystem
+      let fileBuffer;
+      const signedPdfPath = document.signed_pdf_path;
 
-      console.log(`📁 Looking for signed PDF at: ${signedPdfFullPath}`);
+      // Check if it's an S3 key
+      if (
+        s3Service.isEnabled() &&
+        (signedPdfPath.startsWith("signed/") ||
+          signedPdfPath.startsWith(appConfig.s3SignedPrefix + "/"))
+      ) {
+        try {
+          console.log(`📁 Downloading signed PDF from S3: ${signedPdfPath}`);
+          fileBuffer = await s3Service.downloadFile(signedPdfPath);
+          console.log(`✅ Signed PDF downloaded from S3`);
+        } catch (error) {
+          console.error(`❌ Error downloading signed PDF from S3:`, error);
+          return next(new NotFoundError("Signed PDF file not found in S3"));
+        }
+      } else {
+        // Local filesystem
+        const signedPdfFullPath = path.join(__dirname, "..", signedPdfPath);
 
-      // Check if file exists
-      try {
-        await fs.access(signedPdfFullPath);
-        console.log(`✅ Signed PDF file found: ${signedPdfFullPath}`);
-      } catch (error) {
-        console.error(
-          `❌ Signed PDF file not found: ${signedPdfFullPath}`,
-          error
-        );
-        return next(new NotFoundError("Signed PDF file not found"));
+        console.log(`📁 Looking for signed PDF at: ${signedPdfFullPath}`);
+
+        // Check if file exists
+        try {
+          await fs.access(signedPdfFullPath);
+          console.log(`✅ Signed PDF file found: ${signedPdfFullPath}`);
+        } catch (error) {
+          console.error(
+            `❌ Signed PDF file not found: ${signedPdfFullPath}`,
+            error
+          );
+          return next(new NotFoundError("Signed PDF file not found"));
+        }
+
+        fileBuffer = await fs.readFile(signedPdfFullPath);
       }
 
       // Get filename from path
-      const filename = path.basename(document.signed_pdf_path);
+      const filename = path.basename(signedPdfPath);
       const templateName = document.template_name || "document";
       const safeFilename = `${templateName}-signed.pdf`.replace(
         /[^a-z0-9.-]/gi,
@@ -475,7 +540,6 @@ export class DocumentController {
         `attachment; filename="${safeFilename}"`
       );
 
-      const fileBuffer = await fs.readFile(signedPdfFullPath);
       res.send(fileBuffer);
     } catch (error) {
       console.error("Error downloading signed PDF:", error);

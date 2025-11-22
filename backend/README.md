@@ -24,7 +24,8 @@ backend/
 │   └── documentRoutes.js
 ├── services/        # Business logic services
 │   ├── emailService.js
-│   └── pdfService.js
+│   ├── pdfService.js
+│   └── s3Service.js  # AWS S3 storage service
 ├── utils/           # Utility functions
 │   ├── errors.js
 │   ├── security.js
@@ -106,6 +107,54 @@ The application uses MySQL with connection pooling. Tables are automatically cre
 ## Email Service
 
 Email service is optional. If not configured, the application will continue to work but won't send emails.
+
+## S3 Storage Configuration
+
+The application supports both local filesystem and AWS S3 for document storage. By default, files are stored locally in the `uploads/` directory.
+
+### Enabling S3 Storage
+
+1. Set the following environment variables in your `.env` file:
+
+```env
+USE_S3=true
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+AWS_S3_BUCKET_NAME=your-bucket-name
+
+# Optional: Custom S3 path prefixes
+S3_TEMPLATES_PREFIX=templates
+S3_SIGNED_PREFIX=signed
+```
+
+2. Ensure your AWS credentials have the following S3 permissions:
+
+   - `s3:PutObject` - Upload files
+   - `s3:GetObject` - Download files
+   - `s3:DeleteObject` - Delete files
+
+3. The application will automatically:
+   - Store templates in S3 at `templates/` (or your custom prefix)
+   - Store signed PDFs in S3 at `signed/` (or your custom prefix)
+   - Download files from S3 when needed
+   - Fall back to local storage if S3 is not enabled
+
+### S3 Bucket Setup
+
+1. Create an S3 bucket in your AWS account
+2. Configure bucket policies for your application's access
+3. Consider enabling versioning for document retention
+4. Set up lifecycle policies if needed for automatic cleanup
+
+### Migration from Local to S3
+
+When migrating existing data:
+
+1. Upload existing files from `uploads/templates/` to S3 `templates/` prefix
+2. Upload existing files from `uploads/signed/` to S3 `signed/` prefix
+3. Update database records to use S3 keys (e.g., `templates/template-xxx.pdf`) instead of local paths
+4. Enable S3 by setting `USE_S3=true`
 
 ## Production Considerations
 
