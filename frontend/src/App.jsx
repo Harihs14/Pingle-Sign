@@ -6,12 +6,15 @@ import {
   Navigate,
   useLocation,
 } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 import TemplatesPage from "./pages/TemplatesPage";
 import DashboardPage from "./pages/DashboardPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import SettingsPage from "./pages/SettingsPage";
 import EditorPage from "./pages/EditorPage";
 import SigningPage from "./pages/SigningPage";
+import LoginPage from "./pages/LoginPage";
 import { CheckCircle2, X } from "lucide-react";
 
 // Toast notification component
@@ -60,13 +63,59 @@ const AppContent = () => {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/templates" element={<TemplatesPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/editor" element={<EditorPage />} />
+        {/* Public routes */}
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/sign/:token" element={<SigningPage />} />
+        
+        {/* Protected routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/dashboard" replace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/templates"
+          element={
+            <ProtectedRoute>
+              <TemplatesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <AnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/editor"
+          element={
+            <ProtectedRoute>
+              <EditorPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
@@ -77,9 +126,11 @@ const AppContent = () => {
 const App = () => {
   return (
     <BrowserRouter>
-      <div className="app-shell">
-        <AppContent />
-      </div>
+      <AuthProvider>
+        <div className="app-shell">
+          <AppContent />
+        </div>
+      </AuthProvider>
     </BrowserRouter>
   );
 };

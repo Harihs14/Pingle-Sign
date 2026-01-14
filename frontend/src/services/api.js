@@ -4,6 +4,17 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const TOKEN_KEY = "auth_token";
+
+// Get auth token from storage
+const getAuthToken = () => {
+  try {
+    const item = localStorage.getItem(TOKEN_KEY);
+    return item ? JSON.parse(item) : null;
+  } catch {
+    return null;
+  }
+};
 
 // Simple in-memory cache for API responses
 const cache = new Map();
@@ -36,12 +47,17 @@ async function request(endpoint, options = {}) {
     return pendingRequests.get(cacheKey);
   }
 
+  // Get auth token if available
+  const token = getAuthToken();
+  
   const config = {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     },
+    credentials: "include", // Include cookies for auth
   };
 
   // Create promise for this request

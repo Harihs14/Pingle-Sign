@@ -688,19 +688,21 @@ const SigningPage = () => {
         return;
       }
 
-      // Validate base64 encoding
+      // Validate and clean base64 encoding
       try {
         // Try to decode a small portion to validate base64
         if (data.pdfData.length > 0) {
-          // Remove data URI prefix if present
-          const base64Data = data.pdfData.replace(
-            /^data:application\/pdf;base64,/,
-            ""
-          );
+          // Remove data URI prefix if present and clean whitespace
+          const base64Data = data.pdfData
+            .replace(/^data:application\/pdf;base64,/, "")
+            .trim()
+            .replace(/\s/g, "");
           // Validate base64 characters (allow padding with =)
           if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
             throw new Error("Invalid base64 characters");
           }
+          // Store cleaned base64 data
+          data.pdfData = base64Data;
         }
       } catch (error) {
         console.error("Invalid PDF data format:", error);
@@ -1058,9 +1060,19 @@ const SigningPage = () => {
           throw new Error(`Failed to download PDF: ${response.status}`);
         }
 
+        // Check Content-Type header
+        const contentType = response.headers.get("Content-Type");
+        console.log("Response Content-Type:", contentType);
+        
         const blob = await response.blob();
-        console.log("Blob received, size:", blob.size);
-        const url = window.URL.createObjectURL(blob);
+        console.log("Blob received, size:", blob.size, "type:", blob.type);
+        
+        // Ensure blob has correct MIME type
+        const pdfBlob = blob.type === "application/pdf" 
+          ? blob 
+          : new Blob([blob], { type: "application/pdf" });
+        
+        const url = window.URL.createObjectURL(pdfBlob);
         const link = window.document.createElement("a");
         link.href = url;
         link.download = `${document.template_name || "document"}-signed.pdf`;
@@ -1182,9 +1194,19 @@ const SigningPage = () => {
           throw new Error(`Failed to download PDF: ${response.status}`);
         }
 
+        // Check Content-Type header
+        const contentType = response.headers.get("Content-Type");
+        console.log("Response Content-Type:", contentType);
+        
         const blob = await response.blob();
-        console.log("Blob received, size:", blob.size);
-        const url = window.URL.createObjectURL(blob);
+        console.log("Blob received, size:", blob.size, "type:", blob.type);
+        
+        // Ensure blob has correct MIME type
+        const pdfBlob = blob.type === "application/pdf" 
+          ? blob 
+          : new Blob([blob], { type: "application/pdf" });
+        
+        const url = window.URL.createObjectURL(pdfBlob);
         const link = window.document.createElement("a");
         link.href = url;
         link.download = `${templateName || "document"}-signed.pdf`;
@@ -1356,7 +1378,7 @@ const SigningPage = () => {
             file={
               document.pdfData.startsWith("data:")
                 ? document.pdfData
-                : `data:application/pdf;base64,${document.pdfData}`
+                : `data:application/pdf;base64,${document.pdfData.trim().replace(/\s/g, "")}`
             }
             onLoadSuccess={({ numPages }) => setNumPages(numPages)}
             onLoadError={(error) => {

@@ -49,19 +49,6 @@ The application now supports both local filesystem storage and AWS S3 storage. B
 Add the following to your `.env` file:
 
 ```env
-# Enable S3 storage
-USE_S3=true
-
-# AWS Configuration
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your-access-key-id-here
-AWS_SECRET_ACCESS_KEY=your-secret-access-key-here
-AWS_S3_BUCKET_NAME=your-bucket-name
-
-# Optional: Custom S3 path prefixes
-S3_TEMPLATES_PREFIX=templates
-S3_SIGNED_PREFIX=signed
-```
 
 ## Step 4: Verify Configuration
 

@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs/promises";
 import { fileURLToPath } from "url";
@@ -27,6 +28,13 @@ let pool = null;
  */
 async function initializeApp() {
   try {
+    // Log environment configuration status
+    console.log("\n🔐 Authentication Configuration:");
+    console.log("   ADMIN_EMAIL:", process.env.ADMIN_EMAIL ? "✓ Set" : "✗ Not set");
+    console.log("   ADMIN_PASSWORD:", process.env.ADMIN_PASSWORD ? "✓ Set" : "✗ Not set");
+    console.log("   JWT_SECRET:", process.env.JWT_SECRET ? "✓ Set" : "⚠️  Using auto-generated (dev only)");
+    console.log("");
+
     // Initialize database
     pool = await createPool();
 
@@ -36,6 +44,7 @@ async function initializeApp() {
     // Middleware
     app.use(securityHeaders);
     app.use(cors(configureCors(appConfig.corsOrigin)));
+    app.use(cookieParser());
     app.use(express.json({ limit: "10mb" }));
     app.use(express.urlencoded({ extended: true, limit: "10mb" }));
     app.use(requestLogger);

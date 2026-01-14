@@ -29,6 +29,9 @@ export const appConfig = {
   // S3 path prefixes
   s3TemplatesPrefix: process.env.S3_TEMPLATES_PREFIX || "templates",
   s3SignedPrefix: process.env.S3_SIGNED_PREFIX || "signed",
+  // Authentication
+  jwtSecret: process.env.JWT_SECRET,
+  jwtExpiry: process.env.JWT_EXPIRY || "24h",
 };
 
 export default appConfig;

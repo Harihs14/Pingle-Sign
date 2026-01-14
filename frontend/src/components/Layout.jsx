@@ -6,7 +6,9 @@ import {
   FileText,
   Settings,
   X,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +37,7 @@ const navigation = [
 
 const SidebarContentInner = ({ location }) => {
   const { state, isMobile, setOpenMobile } = useSidebar();
+  const { logout, user } = useAuth();
   const isCollapsed = state === "collapsed";
 
   // Close sidebar on mobile when a link is clicked
@@ -42,6 +45,10 @@ const SidebarContentInner = ({ location }) => {
     if (isMobile) {
       setOpenMobile(false);
     }
+  };
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   return (
@@ -114,11 +121,29 @@ const SidebarContentInner = ({ location }) => {
       <SidebarFooter className="border-t border-border">
         <div
           className={cn(
-            "px-3 py-4 transition-opacity",
+            "px-3 py-4 space-y-2 transition-opacity",
             isCollapsed ? "opacity-0 h-0 overflow-hidden" : "opacity-100"
           )}
         >
-          <p className="text-xs text-muted-foreground">© 2025 Pingle Sign</p>
+          {user && (
+            <div className="px-2 py-1">
+              <p className="text-xs font-medium text-foreground truncate">
+                {user.email}
+              </p>
+            </div>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            <span>Logout</span>
+          </Button>
+          <p className="text-xs text-muted-foreground text-center pt-2">
+            © 2025 Pingle Sign
+          </p>
         </div>
       </SidebarFooter>
     </>

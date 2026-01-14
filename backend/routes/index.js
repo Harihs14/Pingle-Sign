@@ -1,6 +1,7 @@
 import express from "express";
 import initTemplateRoutes from "./templateRoutes.js";
 import initDocumentRoutes from "./documentRoutes.js";
+import initAuthRoutes from "./authRoutes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -13,6 +14,9 @@ const router = express.Router();
  * Initialize all routes
  */
 export function initRoutes(app, pool) {
+  // Auth routes (public)
+  app.use("/api/auth", initAuthRoutes());
+
   // API routes
   app.use("/api/templates", initTemplateRoutes(pool));
   app.use("/api/documents", initDocumentRoutes(pool));
